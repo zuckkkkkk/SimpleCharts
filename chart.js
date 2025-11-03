@@ -93,8 +93,7 @@ class HorizontalGauge {
   }
   
   setupHighDPI() {
-    const dpr = window.devicePixelRatio || 1;
-    
+    const dpr = 4;
     // Scala il canvas mantenendo le dimensioni logiche salvate
     this.canvas.width = this.logicalWidth * dpr;
     this.canvas.height = this.logicalHeight * dpr;
