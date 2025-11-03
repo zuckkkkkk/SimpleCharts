@@ -20,7 +20,7 @@ class HorizontalGauge {
    * @param {HTMLCanvasElement} canvas - L'elemento canvas
    * @param {Object} options - Opzioni di configurazione
    * @param {Array} options.zones - Array di zone colorate [{start: 0, end: 33, color: '#ff0000'}, ...]
-   * @param {number} options.value - Valore corrente del gauge (0-100)
+   * @param {number} options.value - Valore corrente del gauge
    * @param {Object} options.needle - Configurazione del needle
    * @param {string} options.needle.color - Colore del needle (default: '#000000')
    * @param {number} options.needle.width - Larghezza del needle (default: 3)
@@ -54,37 +54,53 @@ class HorizontalGauge {
       showValue: options.showValue !== undefined ? options.showValue : true,
       showLabels: options.showLabels !== undefined ? options.showLabels : true,
       highDPI: options.highDPI !== undefined ? options.highDPI : false
- };
-     if (this.options.highDPI) {
+    };
+    
+    // Calcola il valore massimo dalle zone
+    this.maxValue = this.calculateMaxValue();
+    
+    // Salva le dimensioni logiche prima di scalare per DPI
+    this.logicalWidth = canvas.width;
+    this.logicalHeight = canvas.height;
+    
+    if (this.options.highDPI) {
       this.setupHighDPI();
     }
     this.draw();
   }
-    setupHighDPI() {
+  
+  calculateMaxValue() {
+    if (!this.options.zones || this.options.zones.length === 0) {
+      return 100;
+    }
+    return Math.max(...this.options.zones.map(zone => zone.end));
+  }
+  
+  setupHighDPI() {
     const dpr = window.devicePixelRatio || 1;
     
-    // Salva le dimensioni CSS originali
-    const rect = this.canvas.getBoundingClientRect();
-    const cssWidth = this.canvas.width;
-    const cssHeight = this.canvas.height;
-    
-    // Scala il canvas
-    this.canvas.width = cssWidth * dpr;
-    this.canvas.height = cssHeight * dpr;
+    // Scala il canvas mantenendo le dimensioni logiche salvate
+    this.canvas.width = this.logicalWidth * dpr;
+    this.canvas.height = this.logicalHeight * dpr;
     
     // Scala il contesto
     this.ctx.scale(dpr, dpr);
     
-    // Imposta lo stile per mantenere le dimensioni CSS
-    this.canvas.style.width = cssWidth + 'px';
-    this.canvas.style.height = cssHeight + 'px';
+    // Imposta lo stile CSS per mantenere le dimensioni visive
+    this.canvas.style.width = this.logicalWidth + 'px';
+    this.canvas.style.height = this.logicalHeight + 'px';
     
     this.dpiScale = dpr;
   }
+  
   draw() {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Usa le dimensioni logiche per il disegno
+    const width = this.logicalWidth;
+    const height = this.logicalHeight;
     
-    const gaugeWidth = this.canvas.width - this.options.padding.left - this.options.padding.right;
+    this.ctx.clearRect(0, 0, width, height);
+    
+    const gaugeWidth = width - this.options.padding.left - this.options.padding.right;
     const gaugeTop = this.options.padding.top;
     
     this.drawZones(gaugeWidth, gaugeTop);
@@ -105,8 +121,8 @@ class HorizontalGauge {
     const sortedZones = [...this.options.zones].sort((a, b) => a.start - b.start);
     
     sortedZones.forEach(zone => {
-      const startX = this.options.padding.left + (zone.start / 100) * gaugeWidth;
-      const zoneWidth = ((zone.end - zone.start) / 100) * gaugeWidth;
+      const startX = this.options.padding.left + (zone.start / this.maxValue) * gaugeWidth;
+      const zoneWidth = ((zone.end - zone.start) / this.maxValue) * gaugeWidth;
       
       this.ctx.fillStyle = zone.color;
       this.ctx.fillRect(startX, gaugeTop, zoneWidth, this.options.gaugeHeight);
@@ -114,8 +130,8 @@ class HorizontalGauge {
   }
   
   drawBorder(gaugeWidth, gaugeTop) {
-    this.ctx.strokeStyle = '#ffffffff';
-    this.ctx.lineWidth = 1;
+    this.ctx.strokeStyle = '#ffffff';
+    this.ctx.lineWidth = 2;
     this.ctx.strokeRect(
       this.options.padding.left,
       gaugeTop,
@@ -125,27 +141,27 @@ class HorizontalGauge {
   }
   
   drawLabels(gaugeWidth, gaugeTop) {
-    this.ctx.fillStyle = '#000000ff';
+    this.ctx.fillStyle = '#000000';
     this.ctx.font = '12px Arial';
     this.ctx.textAlign = 'center';
     
-    const labels = new Set([0, 100]);
+    const labels = new Set([0, this.maxValue]);
     this.options.zones.forEach(zone => {
       labels.add(zone.start);
       labels.add(zone.end);
     });
     
     Array.from(labels).sort((a, b) => a - b).forEach(value => {
-      const x = this.options.padding.left + (value / 100) * gaugeWidth;
+      const x = this.options.padding.left + (value / this.maxValue) * gaugeWidth;
       const y = gaugeTop + this.options.gaugeHeight + 15;
       
-      this.ctx.fillText(value + '%', x, y);
+      this.ctx.fillText(value, x, y);
     });
   }
   
   drawNeedle(gaugeWidth, gaugeTop) {
-    const value = Math.max(0, Math.min(100, this.options.value));
-    const needleX = this.options.padding.left + (value / 100) * gaugeWidth;
+    const value = Math.max(0, Math.min(this.maxValue, this.options.value));
+    const needleX = this.options.padding.left + (value / this.maxValue) * gaugeWidth;
     
     this.ctx.strokeStyle = this.options.needle.color;
     this.ctx.lineWidth = this.options.needle.width;
@@ -155,7 +171,6 @@ class HorizontalGauge {
     this.ctx.stroke();
     
     this.ctx.fillStyle = this.options.needle.color;
-  
     
     this.ctx.beginPath();
     this.ctx.moveTo(needleX, gaugeTop + this.options.gaugeHeight + 2);
@@ -166,25 +181,26 @@ class HorizontalGauge {
   }
   
   drawValue(gaugeWidth, gaugeTop) {
-    const value = Math.max(0, Math.min(100, this.options.value));
+    const value = Math.max(0, Math.min(this.maxValue, this.options.value));
     
     this.ctx.fillStyle = '#333333';
     this.ctx.font = 'bold 16px Arial';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(
-      value.toFixed(1) + '%',
-      this.canvas.width / 2,
+      value.toFixed(1),
+      this.logicalWidth / 2,
       gaugeTop - 10
     );
   }
   
   setValue(newValue) {
-    this.options.value = Math.max(0, Math.min(100, newValue));
+    this.options.value = Math.max(0, Math.min(this.maxValue, newValue));
     this.draw();
   }
   
   setZones(zones) {
     this.options.zones = zones;
+    this.maxValue = this.calculateMaxValue();
     this.draw();
   }
   
