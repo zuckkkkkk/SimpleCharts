@@ -1,9 +1,9 @@
 /**
  * Charts Library - Libreria unificata per grafici
- * @version 1.0.0
+ * @version 1.1.0
  * 
  * Contiene:
- * - HorizontalGauge: Barre orizzontali con zone colorate e needle
+ * - HorizontalGauge: Barre orizzontali con zone colorate e needle + modalità batteria
  * - PieChart: Grafici a torta con etichette esterne intelligenti
  */
 
@@ -19,6 +19,7 @@ class HorizontalGauge {
    * Crea un nuovo gauge orizzontale
    * @param {HTMLCanvasElement} canvas - L'elemento canvas
    * @param {Object} options - Opzioni di configurazione
+   * @param {string} options.style - Stile del gauge: 'zones' (default) o 'battery'
    * @param {Array} options.zones - Array di zone colorate [{start: 0, end: 33, color: '#ff0000'}, ...]
    * @param {number} options.value - Valore corrente del gauge
    * @param {Object} options.needle - Configurazione del needle
@@ -28,12 +29,14 @@ class HorizontalGauge {
    * @param {number} options.gaugeHeight - Altezza della barra del gauge (default: 40)
    * @param {boolean} options.showValue - Mostra il valore numerico (default: true)
    * @param {boolean} options.showLabels - Mostra le etichette percentuali (default: true)
+   * @param {Object} options.battery - Opzioni per lo stile batteria
    */
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     
     this.options = {
+      style: options.style || 'zones', // 'zones' o 'battery'
       zones: options.zones || [
         { start: 0, end: 33, color: '#ff4444' },
         { start: 33, end: 66, color: '#ffcc00' },
@@ -53,7 +56,20 @@ class HorizontalGauge {
       gaugeHeight: options.gaugeHeight || 40,
       showValue: options.showValue !== undefined ? options.showValue : true,
       showLabels: options.showLabels !== undefined ? options.showLabels : true,
-      highDPI: options.highDPI !== undefined ? options.highDPI : false
+      highDPI: options.highDPI !== undefined ? options.highDPI : false,
+      battery: {
+        terminalWidth: options.battery?.terminalWidth || 8,
+        terminalHeight: options.battery?.terminalHeight || 20,
+        borderColor: options.battery?.borderColor || '#333333',
+        borderWidth: options.battery?.borderWidth || 3,
+        backgroundColor: options.battery?.backgroundColor || '#f0f0f0',
+        criticalThreshold: options.battery?.criticalThreshold || 25,
+        warningThreshold: options.battery?.warningThreshold || 50,
+        criticalColor: options.battery?.criticalColor || '#E20613',
+        warningColor: options.battery?.warningColor || '#F8B73B',
+        goodColor: options.battery?.goodColor || '#678E5B',
+        showPercentage: options.battery?.showPercentage !== undefined ? options.battery.showPercentage : true
+      }
     };
     
     // Calcola il valore massimo dalle zone
@@ -100,6 +116,15 @@ class HorizontalGauge {
     
     this.ctx.clearRect(0, 0, width, height);
     
+    if (this.options.style === 'battery') {
+      this.drawBattery();
+    } else {
+      this.drawZonesGauge();
+    }
+  }
+  
+  drawZonesGauge() {
+    const width = this.logicalWidth;
     const gaugeWidth = width - this.options.padding.left - this.options.padding.right;
     const gaugeTop = this.options.padding.top;
     
@@ -114,6 +139,79 @@ class HorizontalGauge {
     
     if (this.options.showValue) {
       this.drawValue(gaugeWidth, gaugeTop);
+    }
+  }
+  
+  drawBattery() {
+    const width = this.logicalWidth;
+    const height = this.logicalHeight;
+    
+    const batteryWidth = width - this.options.padding.left - this.options.padding.right - this.options.battery.terminalWidth;
+    const batteryHeight = this.options.gaugeHeight;
+    const batteryX = this.options.padding.left;
+    const batteryY = (height - batteryHeight) / 2;
+    
+    // Sfondo della batteria
+    this.ctx.fillStyle = this.options.battery.backgroundColor;
+    this.ctx.fillRect(batteryX, batteryY, batteryWidth, batteryHeight);
+    
+    // Riempimento colorato in base al livello
+    const percentage = (this.options.value / this.maxValue) * 100;
+    const fillWidth = (this.options.value / this.maxValue) * batteryWidth;
+    
+    let fillColor;
+    if (percentage <= this.options.battery.criticalThreshold) {
+      fillColor = this.options.battery.criticalColor;
+    } else if (percentage <= this.options.battery.warningThreshold) {
+      fillColor = this.options.battery.warningColor;
+    } else {
+      fillColor = this.options.battery.goodColor;
+    }
+    
+    this.ctx.fillStyle = fillColor;
+    this.ctx.fillRect(batteryX, batteryY, fillWidth, batteryHeight);
+    
+    // Bordo principale della batteria
+    this.ctx.strokeStyle = this.options.battery.borderColor;
+    this.ctx.lineWidth = this.options.battery.borderWidth;
+    this.ctx.strokeRect(batteryX, batteryY, batteryWidth, batteryHeight);
+    
+    // Terminale positivo
+    const terminalX = batteryX + batteryWidth;
+    const terminalY = batteryY + (batteryHeight - this.options.battery.terminalHeight) / 2;
+    
+    this.ctx.fillStyle = this.options.battery.borderColor;
+    this.ctx.fillRect(
+      terminalX,
+      terminalY,
+      this.options.battery.terminalWidth,
+      this.options.battery.terminalHeight
+    );
+    
+    // Percentuale all'interno della batteria
+    if (this.options.battery.showPercentage) {
+      this.ctx.fillStyle = percentage > 40 ? '#ffffff' : this.options.battery.borderColor;
+      this.ctx.font = 'bold 16px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(
+        percentage.toFixed(0) + '%',
+        batteryX + batteryWidth / 2,
+        batteryY + batteryHeight / 2
+      );
+    }
+    
+    // Valore sopra la batteria
+    if (this.options.showValue) {
+      this.ctx.fillStyle = '#333333';
+      this.ctx.font = 'bold 14px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'bottom';
+      this.ctx.fillText(
+        this.options.value.toFixed(1),
+        batteryX + batteryWidth / 2,
+        batteryY - 5
+      );
     }
   }
   
@@ -206,6 +304,11 @@ class HorizontalGauge {
   
   setNeedleColor(color) {
     this.options.needle.color = color;
+    this.draw();
+  }
+  
+  setStyle(style) {
+    this.options.style = style;
     this.draw();
   }
   
