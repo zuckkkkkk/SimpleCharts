@@ -1,10 +1,14 @@
 /**
  * Charts Library - Libreria unificata per grafici
- * @version 1.2.0
+ * @version 1.2.1
  *
  * Contiene:
  * - HorizontalGauge: Barre orizzontali con zone colorate e needle + modalità batteria
  * - PieChart: Grafici a torta con etichette esterne intelligenti e anti-sovrapposizione
+ *
+ * Changelog v1.2.1:
+ * - Migliorati connettori PieChart con troppe etichette: opacità variabile e curve bezier
+ * - Aumentata dimensione grafico comfort (zones) per compensare bordo bianco più sottile
  *
  * Changelog v1.2.0:
  * - Aggiunto algoritmo anti-sovrapposizione per etichette PieChart
@@ -132,20 +136,24 @@ class HorizontalGauge {
     const height = this.logicalHeight;
     const gaugeWidth = width - this.options.padding.left - this.options.padding.right;
 
-    // Centra verticalmente il gauge come nel battery mode
-    const gaugeTop = (height - this.options.gaugeHeight) / 2;
+    // Aumenta l'altezza del gauge per compensare il bordo bianco più sottile (2px vs 3px del battery)
+    // Aggiungiamo 6px per compensare visivamente (circa 3px per lato)
+    const adjustedGaugeHeight = this.options.gaugeHeight + 6;
 
-    this.drawZones(gaugeWidth, gaugeTop);
-    this.drawBorder(gaugeWidth, gaugeTop);
+    // Centra verticalmente il gauge come nel battery mode
+    const gaugeTop = (height - adjustedGaugeHeight) / 2;
+
+    this.drawZones(gaugeWidth, gaugeTop, adjustedGaugeHeight);
+    this.drawBorder(gaugeWidth, gaugeTop, adjustedGaugeHeight);
 
     if (this.options.showLabels) {
-      this.drawLabels(gaugeWidth, gaugeTop);
+      this.drawLabels(gaugeWidth, gaugeTop, adjustedGaugeHeight);
     }
 
-    this.drawNeedle(gaugeWidth, gaugeTop);
+    this.drawNeedle(gaugeWidth, gaugeTop, adjustedGaugeHeight);
 
     if (this.options.showValue) {
-      this.drawValue(gaugeWidth, gaugeTop);
+      this.drawValue(gaugeWidth, gaugeTop, adjustedGaugeHeight);
     }
   }
   
@@ -222,72 +230,76 @@ class HorizontalGauge {
     }
   }
   
-  drawZones(gaugeWidth, gaugeTop) {
+  drawZones(gaugeWidth, gaugeTop, gaugeHeight = null) {
+    const height = gaugeHeight || this.options.gaugeHeight;
     const sortedZones = [...this.options.zones].sort((a, b) => a.start - b.start);
-    
+
     sortedZones.forEach(zone => {
       const startX = this.options.padding.left + (zone.start / this.maxValue) * gaugeWidth;
       const zoneWidth = ((zone.end - zone.start) / this.maxValue) * gaugeWidth;
-      
+
       this.ctx.fillStyle = zone.color;
-      this.ctx.fillRect(startX, gaugeTop, zoneWidth, this.options.gaugeHeight);
+      this.ctx.fillRect(startX, gaugeTop, zoneWidth, height);
     });
   }
   
-  drawBorder(gaugeWidth, gaugeTop) {
+  drawBorder(gaugeWidth, gaugeTop, gaugeHeight = null) {
+    const height = gaugeHeight || this.options.gaugeHeight;
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 2;
     this.ctx.strokeRect(
       this.options.padding.left,
       gaugeTop,
       gaugeWidth,
-      this.options.gaugeHeight
+      height
     );
   }
   
-  drawLabels(gaugeWidth, gaugeTop) {
+  drawLabels(gaugeWidth, gaugeTop, gaugeHeight = null) {
+    const height = gaugeHeight || this.options.gaugeHeight;
     this.ctx.fillStyle = '#000000';
     this.ctx.font = '12px Arial';
     this.ctx.textAlign = 'center';
-    
+
     const labels = new Set([0, this.maxValue]);
     this.options.zones.forEach(zone => {
       labels.add(zone.start);
       labels.add(zone.end);
     });
-    
+
     Array.from(labels).sort((a, b) => a - b).forEach(value => {
       const x = this.options.padding.left + (value / this.maxValue) * gaugeWidth;
-      const y = gaugeTop + this.options.gaugeHeight + 15;
-      
+      const y = gaugeTop + height + 15;
+
       this.ctx.fillText(value, x, y);
     });
   }
   
-  drawNeedle(gaugeWidth, gaugeTop) {
+  drawNeedle(gaugeWidth, gaugeTop, gaugeHeight = null) {
+    const height = gaugeHeight || this.options.gaugeHeight;
     const value = Math.max(0, Math.min(this.maxValue, this.options.value));
     const needleX = this.options.padding.left + (value / this.maxValue) * gaugeWidth;
-    
+
     this.ctx.strokeStyle = this.options.needle.color;
     this.ctx.lineWidth = this.options.needle.width;
     this.ctx.beginPath();
     this.ctx.moveTo(needleX, gaugeTop - 2);
-    this.ctx.lineTo(needleX, gaugeTop + this.options.gaugeHeight + 2);
+    this.ctx.lineTo(needleX, gaugeTop + height + 2);
     this.ctx.stroke();
-    
+
     this.ctx.fillStyle = this.options.needle.color;
-    
+
     this.ctx.beginPath();
-    this.ctx.moveTo(needleX, gaugeTop + this.options.gaugeHeight + 2);
-    this.ctx.lineTo(needleX - 4, gaugeTop + this.options.gaugeHeight + 8);
-    this.ctx.lineTo(needleX + 4, gaugeTop + this.options.gaugeHeight + 8);
+    this.ctx.moveTo(needleX, gaugeTop + height + 2);
+    this.ctx.lineTo(needleX - 4, gaugeTop + height + 8);
+    this.ctx.lineTo(needleX + 4, gaugeTop + height + 8);
     this.ctx.closePath();
     this.ctx.fill();
   }
   
-  drawValue(gaugeWidth, gaugeTop) {
+  drawValue(gaugeWidth, gaugeTop, gaugeHeight = null) {
     const value = Math.max(0, Math.min(this.maxValue, this.options.value));
-    
+
     this.ctx.fillStyle = '#333333';
     this.ctx.font = 'bold 16px Arial';
     this.ctx.textAlign = 'center';
@@ -546,6 +558,26 @@ class PieChart {
   }
   
   /**
+   * Converte colore hex in RGB
+   */
+  hexToRgb(hex) {
+    // Rimuovi il # se presente
+    hex = hex.replace(/^#/, '');
+
+    // Gestisci formato breve (#RGB)
+    if (hex.length === 3) {
+      hex = hex.split('').map(c => c + c).join('');
+    }
+
+    const bigint = parseInt(hex, 16);
+    return {
+      r: (bigint >> 16) & 255,
+      g: (bigint >> 8) & 255,
+      b: bigint & 255
+    };
+  }
+
+  /**
    * Divide un'etichetta in linee separate gestendo \n
    */
   splitLabel(labelText) {
@@ -736,12 +768,35 @@ class PieChart {
 
     const lineDirection = position.side === 'right' ? 1 : -1;
 
-    // Disegna connettore con curva adattiva
+    // Calcola quanto l'etichetta è stata spostata dalla posizione originale
+    const yDisplacement = Math.abs(endY - position.originalY);
+    const maxDisplacement = 50; // Soglia oltre la quale la linea diventa più trasparente
+
+    // Calcola l'opacità in base allo spostamento (1.0 = opaco, 0.3 = trasparente)
+    const opacity = Math.max(0.3, 1.0 - (yDisplacement / maxDisplacement) * 0.7);
+
+    // Disegna connettore con curva adattiva e opacità variabile
     this.ctx.beginPath();
     this.ctx.moveTo(edgeX, edgeY);
-    this.ctx.lineTo(bendX, bendY);
-    this.ctx.lineTo(endX, endY);
-    this.ctx.strokeStyle = this.options.connector.color;
+
+    // Se lo spostamento è grande, usa una curva bezier per una transizione più morbida
+    if (yDisplacement > 20) {
+      // Punto di controllo per la curva bezier
+      const controlX = bendX;
+      const controlY = (bendY + endY) / 2;
+
+      this.ctx.lineTo(bendX, bendY);
+      this.ctx.quadraticCurveTo(controlX, controlY, endX, endY);
+    } else {
+      // Linea normale per spostamenti piccoli
+      this.ctx.lineTo(bendX, bendY);
+      this.ctx.lineTo(endX, endY);
+    }
+
+    // Applica colore con opacità
+    const connectorColor = this.options.connector.color;
+    const rgb = this.hexToRgb(connectorColor);
+    this.ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
     this.ctx.lineWidth = this.options.connector.width;
     this.ctx.stroke();
 
