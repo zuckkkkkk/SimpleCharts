@@ -1,10 +1,14 @@
 /**
  * Charts Library - Libreria unificata per grafici
- * @version 1.2.1
+ * @version 1.2.2
  *
  * Contiene:
  * - HorizontalGauge: Barre orizzontali con zone colorate e needle + modalità batteria
  * - PieChart: Grafici a torta con etichette esterne intelligenti e anti-sovrapposizione
+ *
+ *  * Changelog v1.2.2:
+ * - Forzato dpr per battery a 4
+ * - Diminuito padding per labels in piechart
  *
  * Changelog v1.2.1:
  * - Migliorati connettori PieChart con troppe etichette: opacità variabile e curve bezier
@@ -101,7 +105,7 @@ class HorizontalGauge {
   }
   
   setupHighDPI() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = 4;
     
     // Scala il canvas mantenendo le dimensioni logiche salvate
     this.canvas.width = this.logicalWidth * dpr;
@@ -613,7 +617,7 @@ class PieChart {
   calculateLabelPositions() {
     const labelDistance = this.options.labelDistance + this.options.lineLength;
     const positions = [];
-    const minSpacing = 5; // Spazio minimo tra etichette
+    const minSpacing = 1; // Spazio minimo tra etichette
 
     // Calcola posizioni iniziali
     this.slices.forEach((slice, index) => {
@@ -780,18 +784,7 @@ class PieChart {
     this.ctx.moveTo(edgeX, edgeY);
 
     // Se lo spostamento è grande, usa una curva bezier per una transizione più morbida
-    if (yDisplacement > 20) {
-      // Punto di controllo per la curva bezier
-      const controlX = bendX;
-      const controlY = (bendY + endY) / 2;
-
-      this.ctx.lineTo(bendX, bendY);
-      this.ctx.quadraticCurveTo(controlX, controlY, endX, endY);
-    } else {
-      // Linea normale per spostamenti piccoli
-      this.ctx.lineTo(bendX, bendY);
       this.ctx.lineTo(endX, endY);
-    }
 
     // Applica colore con opacità
     const connectorColor = this.options.connector.color;
