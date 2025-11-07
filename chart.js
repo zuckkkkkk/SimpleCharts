@@ -1,10 +1,14 @@
 /**
  * Charts Library - Libreria unificata per grafici
- * @version 1.1.0
- * 
+ * @version 1.2.0
+ *
  * Contiene:
  * - HorizontalGauge: Barre orizzontali con zone colorate e needle + modalità batteria
- * - PieChart: Grafici a torta con etichette esterne intelligenti
+ * - PieChart: Grafici a torta con etichette esterne intelligenti e anti-sovrapposizione
+ *
+ * Changelog v1.2.0:
+ * - Aggiunto algoritmo anti-sovrapposizione per etichette PieChart
+ * - Uniformata altezza tra gauge 'zones' e 'battery' (centramento verticale)
  */
 
 // ============================================================================
@@ -125,18 +129,21 @@ class HorizontalGauge {
   
   drawZonesGauge() {
     const width = this.logicalWidth;
+    const height = this.logicalHeight;
     const gaugeWidth = width - this.options.padding.left - this.options.padding.right;
-    const gaugeTop = this.options.padding.top;
-    
+
+    // Centra verticalmente il gauge come nel battery mode
+    const gaugeTop = (height - this.options.gaugeHeight) / 2;
+
     this.drawZones(gaugeWidth, gaugeTop);
     this.drawBorder(gaugeWidth, gaugeTop);
-    
+
     if (this.options.showLabels) {
       this.drawLabels(gaugeWidth, gaugeTop);
     }
-    
+
     this.drawNeedle(gaugeWidth, gaugeTop);
-    
+
     if (this.options.showValue) {
       this.drawValue(gaugeWidth, gaugeTop);
     }
@@ -554,36 +561,131 @@ class PieChart {
     const fontSizeMatch = this.options.label.font.match(/(\d+)px/);
     const fontSize = fontSizeMatch ? parseInt(fontSizeMatch[1]) : 12;
     const lineHeight = fontSize + 2;
-    
+
     let maxWidth = 0;
     lines.forEach(line => {
       const width = this.ctx.measureText(line).width;
       if (width > maxWidth) maxWidth = width;
     });
-    
+
     return {
       width: maxWidth,
       height: lineHeight * lines.length,
       lines: lines
     };
   }
+
+  /**
+   * Calcola le posizioni ottimali delle etichette evitando sovrapposizioni
+   */
+  calculateLabelPositions() {
+    const labelDistance = this.options.labelDistance + this.options.lineLength;
+    const positions = [];
+    const minSpacing = 5; // Spazio minimo tra etichette
+
+    // Calcola posizioni iniziali
+    this.slices.forEach((slice, index) => {
+      const labelText = this.formatLabel(slice);
+      const labelMeasure = this.measureLabel(labelText);
+
+      const lineEndX = this.centerX + Math.cos(slice.middleAngle) * (this.radius + labelDistance);
+      const lineEndY = this.centerY + Math.sin(slice.middleAngle) * (this.radius + labelDistance);
+
+      positions.push({
+        index: index,
+        x: lineEndX,
+        y: lineEndY,
+        originalY: lineEndY,
+        width: labelMeasure.width,
+        height: labelMeasure.height,
+        side: lineEndX >= this.centerX ? 'right' : 'left',
+        angle: slice.middleAngle
+      });
+    });
+
+    // Separa etichette per lato e ordina per Y
+    const leftLabels = positions.filter(p => p.side === 'left').sort((a, b) => a.y - b.y);
+    const rightLabels = positions.filter(p => p.side === 'right').sort((a, b) => a.y - b.y);
+
+    // Risolvi sovrapposizioni per ogni lato
+    this.resolveOverlaps(leftLabels, minSpacing);
+    this.resolveOverlaps(rightLabels, minSpacing);
+
+    return positions;
+  }
+
+  /**
+   * Risolve le sovrapposizioni tra etichette dello stesso lato
+   */
+  resolveOverlaps(labels, minSpacing) {
+    if (labels.length <= 1) return;
+
+    const width = this.options.highDPI ? parseFloat(this.canvas.style.width) : this.canvas.width;
+    const height = this.options.highDPI ? parseFloat(this.canvas.style.height) : this.canvas.height;
+
+    let titleHeight = this.options.title ? 30 : 0;
+    const minY = this.options.padding.top + titleHeight;
+    const maxY = height - this.options.padding.bottom;
+
+    // Iterazioni multiple per convergere
+    for (let iteration = 0; iteration < 10; iteration++) {
+      let hasOverlap = false;
+
+      for (let i = 0; i < labels.length - 1; i++) {
+        const current = labels[i];
+        const next = labels[i + 1];
+
+        const currentBottom = current.y + current.height / 2;
+        const nextTop = next.y - next.height / 2;
+
+        const overlap = currentBottom + minSpacing - nextTop;
+
+        if (overlap > 0) {
+          hasOverlap = true;
+
+          // Sposta entrambe le etichette per distribuire meglio
+          const shift = overlap / 2;
+
+          // Sposta l'etichetta corrente in su
+          if (current.y - shift >= minY + current.height / 2) {
+            current.y -= shift;
+          }
+
+          // Sposta l'etichetta successiva in giù
+          if (next.y + shift <= maxY - next.height / 2) {
+            next.y += shift;
+          }
+        }
+      }
+
+      if (!hasOverlap) break;
+    }
+
+    // Assicurati che tutte le etichette siano nei limiti
+    labels.forEach(label => {
+      label.y = Math.max(minY + label.height / 2, Math.min(maxY - label.height / 2, label.y));
+    });
+  }
   
   draw() {
     const width = this.options.highDPI ? parseFloat(this.canvas.style.width) : this.canvas.width;
     const height = this.options.highDPI ? parseFloat(this.canvas.style.height) : this.canvas.height;
-    
+
     this.ctx.clearRect(0, 0, width, height);
-    
+
     if (this.options.title) {
       this.drawTitle();
     }
-    
+
     this.slices.forEach(slice => {
       this.drawSlice(slice);
     });
-    
-    this.slices.forEach(slice => {
-      this.drawConnectorAndLabel(slice);
+
+    // Calcola posizioni ottimali delle etichette evitando sovrapposizioni
+    const labelPositions = this.calculateLabelPositions();
+
+    this.slices.forEach((slice, index) => {
+      this.drawConnectorAndLabel(slice, labelPositions[index]);
     });
   }
   
@@ -620,19 +722,21 @@ class PieChart {
     }
   }
   
-  drawConnectorAndLabel(slice) {
+  drawConnectorAndLabel(slice, position) {
     const edgeX = this.centerX + Math.cos(slice.middleAngle) * this.radius;
     const edgeY = this.centerY + Math.sin(slice.middleAngle) * this.radius;
-    
+
+    // Usa la posizione ottimizzata
+    const endX = position.x;
+    const endY = position.y;
+
     const bendDistance = this.options.labelDistance;
     const bendX = this.centerX + Math.cos(slice.middleAngle) * (this.radius + bendDistance);
     const bendY = this.centerY + Math.sin(slice.middleAngle) * (this.radius + bendDistance);
-    
-    const lineDirection = bendX > this.centerX ? 1 : -1;
-    const endX = bendX + lineDirection * this.options.lineLength;
-    const endY = bendY;
-    
-    // Disegna connettore
+
+    const lineDirection = position.side === 'right' ? 1 : -1;
+
+    // Disegna connettore con curva adattiva
     this.ctx.beginPath();
     this.ctx.moveTo(edgeX, edgeY);
     this.ctx.lineTo(bendX, bendY);
@@ -640,24 +744,24 @@ class PieChart {
     this.ctx.strokeStyle = this.options.connector.color;
     this.ctx.lineWidth = this.options.connector.width;
     this.ctx.stroke();
-    
+
     // Disegna etichetta multi-linea
     const labelText = this.formatLabel(slice);
     const labelMeasure = this.measureLabel(labelText);
-    
+
     this.ctx.fillStyle = this.options.label.color;
     this.ctx.font = this.options.label.font;
-    
+
     const fontSizeMatch = this.options.label.font.match(/(\d+)px/);
     const fontSize = fontSizeMatch ? parseInt(fontSizeMatch[1]) : 12;
     const lineHeight = fontSize + 2;
-    
+
     // Punto di partenza Y (centrato verticalmente)
     let startY = endY - (labelMeasure.height / 2) + (fontSize / 2);
-    
+
     labelMeasure.lines.forEach((line, index) => {
       const currentY = startY + (index * lineHeight);
-      
+
       if (lineDirection === 1) {
         this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
